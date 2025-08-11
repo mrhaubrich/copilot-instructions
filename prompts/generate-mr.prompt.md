@@ -1,6 +1,6 @@
 ---
 mode: 'agent'
-tools: ['githubRepo', 'runCommands', 'search', 'searchResults', 'terminalLastCommand', 'usages']
+tools: ['githubRepo', 'runCommands', 'search', 'searchResults', 'terminalLastCommand', 'usages', 'codebase']
 description: 'Generate a GitHub/GitLab PR title and description from a diff'
 ---
 
