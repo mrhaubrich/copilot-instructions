@@ -1,14 +1,16 @@
 ---
-mode: 'agent'
-tools: ['githubRepo', 'runCommands', 'search', 'searchResults', 'terminalLastCommand', 'usages', 'codebase']
-description: 'Generate a GitHub/GitLab PR title and description from a diff'
+agent: agent
+name: generate-mr
+description: Generate a GitHub or GitLab pull/merge request title and description from a diff between two branches.
+tools: [vscode/runCommand, vscode/askQuestions, execute, read, agent, search/changes]
 ---
 
 Generate a **pull request title and description** based on the code changes between two branches.
 
 ### 1. Identify Git Provider
 
-Run:  
+Use `vscode/runCommand` to run:
+
 ```bash
 git config --get remote.origin.url
 ```
@@ -18,102 +20,142 @@ git config --get remote.origin.url
 
 This determines whether to follow GitHub or GitLab markdown and PR conventions.
 
+If the command fails or no remote is configured, default to GitHub and continue.
+
 ### 2. Detect Language
 
-Check if the project is written in English or Portuguese:
+Use `search/changes` and `read` to inspect `README.md` and other top-level docs to detect if the project is written in English or Portuguese.
 
-- Inspect the contents of `README.md` or look for keywords to determine if the default language is **Brazilian Portuguese** (`pt-BR`).  
+- If the default language appears to be **Brazilian Portuguese** (`pt-BR`), write the MR in pt-BR.  
 - If unclear, default to **pt-BR**.  
 
 The PR title and description must be written in the same language as the project.
 
-### 3. Generate the Diff
+### 3. Generate and Read the Diff
 
-Use the following command to compute the diff from the merge base of the target and source branches and write it to a file to avoid interactive paging:
+Ask the user for the branches if not provided yet using `vscode/askQuestions`:
+
+- `targetBranch` (base, for example, `main`)
+- `sourceBranch` (feature branch)
+
+Use `vscode/runCommand` or `execute` to compute the diff from the merge base and write it to a temporary file to avoid interactive paging:
 
 ```bash
-git diff $(git merge-base ${input:targetBranch} ${input:sourceBranch}) ${input:sourceBranch} > diff.patch
+git diff "$(git merge-base ${input:targetBranch} ${input:sourceBranch})" "${input:sourceBranch}" > diff.patch
 ```
 
-Read the contents of `diff.patch` to summarize the changes.
-You can read the contents without using `cat` or `less` by using the `readFile` function.
+Then use `read` to read the contents of `diff.patch` and summarize the changes.
+
+When summarizing the diff:
+
+- Focus on **logical changes**: features, fixes, refactors, config changes, schema migrations.
+- De-emphasize low-signal changes: formatting-only adjustments, re-generated code, lockfiles, etc.
 
 ### 4. Format the Output
 
-Generate a **PR title** and **description**:
+Generate a **PR title** and **description**.
 
-- **Title**  
-  - Max 50 characters  
-  - Imperative mood  
-  - Conventional commit prefix (`feat:`, `fix:`, `chore:`, etc.)  
-  - No trailing period  
-  - Should use gitmoji for the prefix if possible.
-  - It could have the scope of the change, if applicable.
-  - Example: `feat(auth): :sparkles: Add token-based login flow`  
+#### Title
 
-- **Description**  
-  Should include the following sections:
-  1. **What** - Briefly describe what changed
-  2. **Why** - Explain the rationale and context
-  3. **Context & Problem** - Describe the context and the problem being solved
-  4. **Solution Overview** - Bullet list of major changes
-  5. **Verification & Testing** - Testing steps and verification methods
-  6. **Impact & Rollout** - Migration notes, feature flags, rollback plan
-  7. **Related Issues** - Link to related issues/tickets
-  8. **Reviewers** - Tag reviewers if applicable
-  9. **Labels** - Suggested labels for the PR
+The title must:
 
-Write the description in clear Markdown.
+- Use a **Conventional Commit** prefix: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, or `perf:`.  
+- Optionally include a **scope** in parentheses, for example `feat(auth):`, `fix(api):`, `chore(ci):`.  
+- Be written in **imperative mood** (for example, “add”, “fix”, “update”).  
+- Have **no trailing period**.  
+- Be at most **50 characters** when possible, but favor clarity over strict length.  
+- Prefer a matching **gitmoji** prefix when it improves readability:
+  - `:sparkles:` for new features (`feat:`)
+  - `:bug:` for bug fixes (`fix:`)
+  - `:recycle:` for refactors (`refactor:`)
+  - `:memo:` for documentation (`docs:`)
+  - `:white_check_mark:` for tests (`test:`)
+
+Example (adapt wording and language to the repo):
+
+```text
+feat(auth): :sparkles: Add token-based login flow
+```
+
+#### Description
+
+Write the description in clear Markdown, in the same language as the repository.
+
+It should include the following sections:
+
+1. **What** – Briefly describe what changed.
+2. **Why** – Explain the rationale and context.
+3. **Context & Problem** – Describe the context and the problem being solved.
+4. **Solution Overview** – Bullet list of major changes.
+5. **Verification & Testing** – Testing steps and verification methods.
+6. **Impact & Rollout** – Migration notes, feature flags, rollback plan.
+7. **Related Issues** – Links to related issues/tickets.
+8. **Reviewers** – Suggested reviewers to tag.
+9. **Labels** – Suggested labels for the PR/MR.
+
+Guidelines:
+
+- Prefer concrete, high-signal bullets derived from the diff.  
+- Do not hallucinate business context; if it is not obvious from the changes, add a short, neutral placeholder for the author to fill in (in the correct language).  
+- Call out database migrations, config changes, and breaking changes explicitly.  
 
 ### 5. Output Format
 
-Return the result as a fenced code block labelled `markdown`. For example:
+Return the result as a fenced code block labelled `markdown`. Do not put any text outside this block.
 
-    ```markdown
-            ## Title
-        <!-- e.g. Feature: Add JWT authentication endpoint -->
+Follow this structure (translate headings and inline comments to the detected language):
 
-        ## What
-        - Briefly describe what changed.
+```markdown
+```markdown
+## Title
+feat(auth): :sparkles: Add token-based login flow
 
-        ## Why
-        - Explain the rationale and context.
+## What
+- Briefly describe what changed.
 
-        ## Context & Problem
-        - **Context:** 
-        - **Problem:** 
+## Why
+- Explain the rationale and context.
 
-        ## Solution Overview
-        - Bullet list of major changes.
+## Context & Problem
+- **Context:**
+- **Problem:**
 
-        ## Verification & Testing
-        - [ ] Unit tests added/updated
-        - [ ] Integration tests
-        - [ ] Manual steps:
-        1. ...
-        2. ...
+## Solution Overview
+- Bullet list of major changes.
 
-        ## Impact & Rollout
-        - **Migrations:** 
-        - **Feature Flags:** 
-        - **Rollback Plan:** 
+## Verification & Testing
+- [ ] Unit tests added/updated
+- [ ] Integration tests
+- [ ] Manual steps:
+  - [ ] Step 1
+  - [ ] Step 2
 
-        ## Related Issues
-        Closes #...
+## Impact & Rollout
+- **Migrations:**
+- **Feature Flags:**
+- **Rollback Plan:**
 
-        ## Reviewers
-        /assign_reviewer @username1 @username2
+## Related Issues
+- Closes #...
 
-        ## Labels
-        backend, high-priority
+## Reviewers
+- @username1
+- @username2
 
-    ```
+## Labels
+- backend
+- high-priority
+```
+```
 
-Ensure the entire PR title and description are inside this single code block.
+Ensure the entire PR title and description are inside this single `markdown` code block.
 
-### 6. Remove the Diff File
-After generating the PR title and description, delete the `diff.patch` file to clean up.
+### 6. Clean Up
+
+After generating the PR title and description, use `vscode/runCommand` or `execute` to remove the temporary diff file:
 
 ```bash
-rm diff.patch
+rm -f diff.patch
 ```
+
+If cleanup fails, do not block returning the generated MR content; the text output has priority.
